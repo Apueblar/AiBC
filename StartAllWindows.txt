@@ -1,0 +1,17 @@
+podman machine start
+
+podman run -it --rm `
+  -p 5900:5900 -p 6080:6080 -p 3001:3001 `
+  -v "C:\Users\YourName\RaceYourCode:/home/student/workspace:Z" `
+  --name torcs docker.io/johnsloe/torcs-competition:amd64
+
+
+podman machine list
+podman machine inspect podman-machine-default
+
+
+podman machine ssh podman-machine-default
+
+ip addr show
+
+http://192.168.70.204:6080/vnc.html
