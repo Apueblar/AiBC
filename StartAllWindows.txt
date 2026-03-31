@@ -5,7 +5,6 @@ podman run -it --rm `
   -v "C:\Users\YourName\RaceYourCode:/home/student/workspace:Z" `
   --name torcs docker.io/johnsloe/torcs-competition:amd64
 
-
 podman machine list
 podman machine inspect podman-machine-default
 
@@ -15,3 +14,17 @@ podman machine ssh podman-machine-default
 ip addr show
 
 http://192.168.70.204:6080/vnc.html
+
+For each start of the container:
+	torcs &
+
+	1.  In the TORCS main menu, click Race.
+	2.  Click Practice.
+	3.  Click Configure Race.
+	4.  Select a track (any track will work, for example: Wheel-1).
+	5.  For the robot/driver slot, select scr_server.
+	6.  Click Accept and then back to the Practice menu.
+	7.  Click New Race. TORCS will switch to a blue waiting screen with some text. This means it is waiting for your AI agent to connect.
+
+Each run:
+	python3 run.py
