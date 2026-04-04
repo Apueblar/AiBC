@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -e
+
+apt-get update -q
+apt-get install -y -q xvfb python3-pip wmctrl xautomation libgl1-mesa-dri
+
+pip3 install numpy python3-xlib --quiet
+
+Xvfb :1 -screen 0 1024x768x24 -ac &
+sleep 2
+
+export LIBGL_ALWAYS_SOFTWARE=1
+
+cd /workspace/gym_torcs
+python3 run.py --episodes 1 --steps 10000

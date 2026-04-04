@@ -2,37 +2,35 @@ name: TORCS Bot Run
 
 on:
   push:
-    branches: [main]
+    branches: [pipeline-that-runs-bot]
   workflow_dispatch:
 
 jobs:
   run-torcs-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    container:
-      image: docker.io/johnsloe/torcs-competition:amd64
+    timeout-minutes: 25
 
     steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install runtime dependencies
-        run: |
-          apt-get update -q
-          apt-get install -y -q xvfb python3-pip wmctrl xautomation libgl1-mesa-dri
-          pip3 install -r requirements.txt
-
-      - name: Start virtual display
-        run: Xvfb :1 -screen 0 1024x768x24 -ac &
-
-      - name: Wait for Xvfb to initialise
-        run: sleep 2
+      - name: Pull TORCS image
+        run: docker pull docker.io/johnsloe/torcs-competition:amd64
 
       - name: Run TORCS bot
-        working-directory: gym_torcs
-        env:
-          LIBGL_ALWAYS_SOFTWARE: "1"
-        run: python3 run.py --episodes 1 --steps 10000 2>&1 | tee ../race_results.txt
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            docker.io/johnsloe/torcs-competition:amd64 \
+            bash /workspace/.github/scripts/run_torcs.sh \
+            2>&1 | tee race_results.txt
 
       - name: Upload race results
         if: always()
