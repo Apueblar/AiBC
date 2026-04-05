@@ -26,6 +26,7 @@ jobs:
 
       - name: Run TORCS bot
         run: |
+          set -o pipefail
           docker run --rm \
             --user root \
             -v "${{ github.workspace }}:/workspace" \
