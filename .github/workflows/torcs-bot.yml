@@ -5,6 +5,9 @@ on:
     branches: [pipeline-that-runs-bot]
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   run-torcs-bot:
     runs-on: ubuntu-latest
