@@ -27,6 +27,7 @@ jobs:
       - name: Run TORCS bot
         run: |
           docker run --rm \
+            --user root \
             -v "${{ github.workspace }}:/workspace" \
             docker.io/johnsloe/torcs-competition:amd64 \
             bash /workspace/.github/scripts/run_torcs.sh \
