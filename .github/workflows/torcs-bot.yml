@@ -2,7 +2,7 @@ name: TORCS Bot Run
 
 on:
   push:
-    branches: [pipeline-that-runs-bot]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
