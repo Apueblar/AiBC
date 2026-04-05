@@ -8,9 +8,6 @@ on:
 permissions:
   contents: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   run-torcs-bot:
     runs-on: ubuntu-latest
@@ -25,7 +22,7 @@ jobs:
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Pull TORCS image
         run: docker pull docker.io/johnsloe/torcs-competition:amd64
@@ -78,7 +75,7 @@ jobs:
 
       - name: Upload race results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: race-results
           path: race_results.txt
