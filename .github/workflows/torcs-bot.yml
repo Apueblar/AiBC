@@ -5,38 +5,77 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   run-torcs-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    container:
-      image: docker.io/johnsloe/torcs-competition:amd64
+    timeout-minutes: 25
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install runtime dependencies
+      - name: Free disk space
         run: |
-          apt-get update -q
-          apt-get install -y -q xvfb python3-pip wmctrl xautomation libgl1-mesa-dri
-          pip3 install -r requirements.txt
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
-      - name: Start virtual display
-        run: Xvfb :1 -screen 0 1024x768x24 -ac &
+      - name: Checkout repository
+        uses: actions/checkout@v5
 
-      - name: Wait for Xvfb to initialise
-        run: sleep 2
+      - name: Pull TORCS image
+        run: docker pull docker.io/johnsloe/torcs-competition:amd64
 
       - name: Run TORCS bot
-        working-directory: gym_torcs
-        env:
-          LIBGL_ALWAYS_SOFTWARE: "1"
-        run: python3 run.py --episodes 1 --steps 10000 2>&1 | tee ../race_results.txt
+        run: |
+          set -o pipefail
+          docker run --rm \
+            --user root \
+            -v "${{ github.workspace }}:/workspace" \
+            docker.io/johnsloe/torcs-competition:amd64 \
+            bash /workspace/.github/scripts/run_torcs.sh \
+            2>&1 | tee race_results.txt
+
+      - name: Save results
+        if: always()
+        run: |
+          LAP_COMPLETED=$(grep "Lap completed" race_results.txt | grep -o "YES\|NO" | head -1 || echo "N/A")
+          LAP_TIME=$(grep "Lap time" race_results.txt | grep -oP '[\d.]+(?= s)' | head -1 || echo "N/A")
+          DISTANCE=$(grep "Distance      :" race_results.txt | grep -oP '[\d.]+' | head -1 || echo "N/A")
+          REWARD=$(grep "Total reward" race_results.txt | grep -oP '[\d.]+' | head -1 || echo "N/A")
+          RUN_DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
+          COMMIT="${{ github.sha }}"
+          RUN_ID="${{ github.run_id }}"
+
+          {
+            echo "## TORCS Race Results"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Lap completed | $LAP_COMPLETED |"
+            echo "| Lap time | ${LAP_TIME} s |"
+            echo "| Distance | ${DISTANCE} m |"
+            echo "| Total reward | $REWARD |"
+            echo "| Commit | \`${COMMIT:0:7}\` |"
+            echo "| Run | [#${RUN_ID}](https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          mkdir -p results
+          CSV="results/history.csv"
+          [ ! -f "$CSV" ] && echo "date,run_id,commit,lap_completed,lap_time_s,distance_m,total_reward" > "$CSV"
+          echo "$RUN_DATE,$RUN_ID,${COMMIT:0:7},$LAP_COMPLETED,$LAP_TIME,$DISTANCE,$REWARD" >> "$CSV"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$CSV"
+          git commit -m "results: run $RUN_ID | reward=$REWARD lap=${LAP_TIME}s"
+          git pull --rebase origin ${{ github.ref_name }}
+          git push
 
       - name: Upload race results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: race-results
           path: race_results.txt
