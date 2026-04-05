@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
+rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/vscode*.list
+
 apt-get update -q
 apt-get install -y -q xvfb python3-pip wmctrl xautomation libgl1-mesa-dri
 
