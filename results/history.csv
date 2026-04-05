@@ -1,0 +1,2 @@
+date,run_id,commit,lap_completed,lap_time_s,distance_m,total_reward
+2026-04-05 20:53 UTC,24010131381,9526ab9,YES,95.01,2158.0,370368.29
