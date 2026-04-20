@@ -21,9 +21,9 @@ TARGET_SPEED      = 290      # km/h  - cruise target on open straights
 MAX_ACCEL         = 1.0      # full throttle available
 
 # Steering gains
-STEER_ANGLE_GAIN  = 12.0     # was 22.0 — main oscillation source
-STEER_CENTER_GAIN = 0.8      # was 1.6
-STEER_LOOKAHEAD   = 0.3      # was 0.9 — barely blend it in
+STEER_ANGLE_GAIN  = 8.0     # was 22.0 — main oscillation source
+STEER_CENTER_GAIN = 0.5      # was 1.6
+STEER_LOOKAHEAD   = 0.15      # was 0.9 — barely blend it in
 
 # Adaptive speed table — forward_dist = min of sensors 7-11 (±30° cone)
 # Tuned for F1 intent: hold speed on straights, commit hard at corner entry
@@ -70,6 +70,7 @@ class AlphaDriver:
     def __init__(self):
         self.gear = 1
         self._last_steer = 0.0
+        self._target_pos  = 0.0
 
     # ------------------------------------------------------------------
     # Primary interface — gym_torcs namedtuple
@@ -198,39 +199,40 @@ class AlphaDriver:
         denom         = left_cluster + right_cluster + 1.0
         mid_asymmetry = abs(left_cluster - right_cluster) / denom
 
-        # ── Racing line: pick target position ──────────────────────────
-        if mid_asymmetry > APEX_ASYM_THRESH:
-            # Turning left  → inside is left  → target negative trackPos
-            # Turning right → inside is right → target positive trackPos
-            if right_cluster > left_cluster:   # corner opens to the right → turning left
-                target_pos = -APEX_OFFSET
-            else:                              # corner opens to the left  → turning right
-                target_pos =  APEX_OFFSET
+        # -- Target position: ease toward apex, ease back to 0 ---------
+        # Never jumps — moves at most 0.05 per tick toward the goal
+        SLEW_RATE = 0.05
+        if mid_asymmetry > 0.25:              # real corner only
+            raw_target = -APEX_OFFSET if right_cluster > left_cluster else APEX_OFFSET
         else:
-            target_pos = 0.0   # straight → stay centre
+            raw_target = 0.0                  # straight → centre
 
-        # ── Layer 1: align with road axis ──────────────────────────────
+        # Slew-rate limit: target_pos can't teleport
+        delta = raw_target - self._target_pos
+        self._target_pos += float(np.clip(delta, -SLEW_RATE, SLEW_RATE))
+
+        # -- Layer 1: road axis alignment -------------------------------
         steer = angle * STEER_ANGLE_GAIN / np.pi
 
-        # ── Layer 2: pull toward target (apex or centre) ───────────────
-        steer -= (track_pos - target_pos) * STEER_CENTER_GAIN
+        # -- Layer 2: pull toward smoothed target -----------------------
+        steer -= (track_pos - self._target_pos) * STEER_CENTER_GAIN
 
-        # ── Layer 3: lookahead only in proper corners ──────────────────
-        if mid_asymmetry > 0.15:
+        # -- Layer 3: lookahead only in strong corners ------------------
+        if mid_asymmetry > 0.30:
             lookahead_steer = (right_cluster - left_cluster) / denom
             steer += lookahead_steer * STEER_LOOKAHEAD
 
-        # ── Speed-adaptive clamp ───────────────────────────────────────
+        # -- Speed-adaptive clamp ---------------------------------------
         max_steer = float(np.clip(1.2 - speed / 350.0, 0.35, 1.0))
         steer = float(np.clip(steer, -max_steer, max_steer))
 
-        # ── Layer 4: boundary recovery (hard override) ─────────────────
+        # -- Boundary recovery ------------------------------------------
         if abs(track_pos) > TRACK_BOUNDARY:
             correction = -np.sign(track_pos) * 1.0
             steer = 0.7 * correction + 0.3 * steer
             steer = float(np.clip(steer, -1.0, 1.0))
 
-        # ── Low-pass filter ────────────────────────────────────────────
+        # -- Strong low-pass filter -------------------------------------
         steer = 0.4 * steer + 0.6 * self._last_steer
         self._last_steer = steer
 
