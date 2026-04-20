@@ -22,16 +22,6 @@ import numpy as np
 # ---------------------------------------------------------------------------
 os.environ['DISPLAY'] = ':1'
 
-# ---------------------------------------------------------------------------
-# Xlib – used for focus-independent key injection via the XTEST extension
-# ---------------------------------------------------------------------------
-try:
-    from Xlib import X, XK, display as xdisplay
-    from Xlib.ext import xtest as xtest_ext
-    _XLIB_OK = True
-except ImportError:
-    _XLIB_OK = False
-
 import snakeoil3_gym as snakeoil3
 from car_agent import AlphaDriver
 
@@ -52,8 +42,9 @@ def parse_args():
 # ---------------------------------------------------------------------------
 # GUI navigation – pure Python via XTEST (focus-independent)
 # ---------------------------------------------------------------------------
-_MENU_KEYS = ['Return', 'Up', 'Up', 'Return', 'Return']
-_KEY_DELAY  = 0.25   # seconds between keystrokes
+_MENU_KEYS_START = ['Return', 'Up', 'Up', 'Return', 'Down', 'Return', 'Left', 'Left', 'Left', 'Left', 'Left', 'Left', 'Left', 'Left', 'Return', 'Return', 'Return', 'Up', 'Return']
+_MENU_KEYS_CONTINUE = ['Return', 'Up', 'Up', 'Return', 'Return']
+_KEY_DELAY  = 0.25   # seconds between keystrokes - 0.25
 _WINDOW_POLL = 0.4   # seconds between window-search retries
 _WINDOW_WAIT = 25.0  # max seconds to wait for TORCS window
 
@@ -78,18 +69,7 @@ def _find_torcs_window(dpy):
     return _search(dpy.screen().root)
 
 
-def _send_key_xlib(dpy, keysym_name):
-    """Inject a key press+release at the X server level (ignores focus)."""
-    keysym  = XK.string_to_keysym(keysym_name)
-    keycode = dpy.keysym_to_keycode(keysym)
-    xtest_ext.fake_input(dpy, X.KeyPress,   keycode)
-    dpy.sync()
-    time.sleep(0.05)
-    xtest_ext.fake_input(dpy, X.KeyRelease, keycode)
-    dpy.sync()
-
-
-def navigate_torcs_menu():
+def navigate_torcs_menu(first_run=True):
     """
     Wait for the TORCS window to appear, then send the menu keystrokes
     needed to reach the blue 'waiting for driver' screen.
@@ -97,41 +77,6 @@ def navigate_torcs_menu():
     Primary path  : python3-xlib XTEST  (no external tools needed)
     Fallback path : wmctrl focus  +  xte  (if Xlib import failed)
     """
-    # ── Primary: python3-xlib ──────────────────────────────────────────────
-    if _XLIB_OK:
-        try:
-            dpy = xdisplay.Display()
-            if not dpy.has_extension('XTEST'):
-                raise RuntimeError('XTEST extension not available')
-
-            print('[run] Waiting for TORCS window (Xlib)...')
-            deadline = time.time() + _WINDOW_WAIT
-            win = None
-            while time.time() < deadline:
-                win = _find_torcs_window(dpy)
-                if win:
-                    break
-                time.sleep(_WINDOW_POLL)
-
-            if win is None:
-                raise RuntimeError(f'TORCS window not found within {_WINDOW_WAIT}s')
-
-            print(f'[run] TORCS window found (0x{win.id:08x}). Sending menu keys...')
-            time.sleep(0.3)   # let the menu fully render
-
-            for key in _MENU_KEYS:
-                _send_key_xlib(dpy, key)
-                print(f'[run]   key -> {key}')
-                time.sleep(_KEY_DELAY)
-
-            dpy.close()
-            print('[run] Menu navigation complete (Xlib).')
-            return
-
-        except Exception as e:
-            print(f'[run] Xlib path failed ({e}), trying wmctrl fallback...')
-
-    # ── Fallback: wmctrl + xte ─────────────────────────────────────────────
     print('[run] Waiting for TORCS window (wmctrl)...')
     deadline = time.time() + _WINDOW_WAIT
     wid = None
@@ -157,6 +102,11 @@ def navigate_torcs_menu():
         os.system(f'wmctrl -ia {wid}')
         time.sleep(0.5)
 
+    if first_run:
+        _MENU_KEYS = _MENU_KEYS_START
+    else:
+        _MENU_KEYS = _MENU_KEYS_CONTINUE
+
     for key in _MENU_KEYS:
         os.system(f"xte 'key {key}'")
         print(f'[run]   key -> {key}')
@@ -170,7 +120,7 @@ def navigate_torcs_menu():
 # ---------------------------------------------------------------------------
 _TORCS_SETTLE = 5.0   # seconds to let TORCS open its window before we search
 
-def launch_torcs(vision=False):
+def launch_torcs(vision=False, new_window=True):
     """Kill any stale instance, start a fresh one, navigate the GUI."""
     print('[run] Killing any existing TORCS process...')
     os.system('pkill -9 torcs 2>/dev/null')
@@ -192,7 +142,7 @@ def launch_torcs(vision=False):
     print(f'[run] Waiting {_TORCS_SETTLE}s for TORCS to open its window...')
     time.sleep(_TORCS_SETTLE)
 
-    navigate_torcs_menu()
+    navigate_torcs_menu(first_run=new_window)
 
     # Small pause so TORCS finishes transitioning to the waiting screen
     time.sleep(2.0)
@@ -315,18 +265,12 @@ def run_episode(client, driver, max_steps, ep_num):
 # Main
 # ---------------------------------------------------------------------------
 def main():
-    # Warn early if python3-xlib is missing so the user can fix it once
-    if not _XLIB_OK:
-        print('[run] WARNING: python3-xlib not found. GUI navigation will use '
-              'wmctrl+xte as fallback (may be less reliable).')
-        print('[run]   To install: pip3 install python3-xlib')
-
     args   = parse_args()
     driver = AlphaDriver()
     print('[run] AlphaDriver initialised.')
 
     if not args.no_launch:
-        launch_torcs(vision=args.vision)
+        launch_torcs(vision=args.vision, new_window=True)
 
     laps_completed = 0
 
@@ -338,14 +282,14 @@ def main():
         # Relaunch TORCS every 3rd episode to avoid memory leak
         if ep > 0 and ep % 3 == 0:
             print('[run] Relaunching TORCS to avoid memory leak...')
-            launch_torcs(vision=args.vision)
+            launch_torcs(vision=args.vision, new_window=ep % 3 == 0)
 
         try:
             client = connect_to_torcs(port=args.port, vision=args.vision)
         except RuntimeError as e:
             print(f'[run] Connection failed: {e}')
             print('[run] Attempting TORCS relaunch and retry...')
-            launch_torcs(vision=args.vision)
+            launch_torcs(vision=args.vision, new_window=ep % 3 == 0)
             client = connect_to_torcs(port=args.port, vision=args.vision)
 
         total_reward, lap_done, lap_time, distance = run_episode(
