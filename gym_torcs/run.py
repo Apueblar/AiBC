@@ -47,28 +47,7 @@ _MENU_KEYS_START = ['Return', 'Up', 'Up', 'Return', 'Down', 'Return', 'Left', 'L
 _MENU_KEYS_CONTINUE = ['Return', 'Up', 'Up', 'Return', 'Return']
 _KEY_DELAY  = 0.25   # seconds between keystrokes - 0.25
 _WINDOW_POLL = 0.4   # seconds between window-search retries
-_WINDOW_WAIT = 25.0  # max seconds to wait for TORCS window
-
-
-def _find_torcs_window(dpy):
-    """Recursively walk the X11 window tree; return first window named 'torcs'."""
-    def _search(win):
-        try:
-            name = win.get_wm_name() or ''
-            if 'torcs' in name.lower():
-                return win
-        except Exception:
-            pass
-        try:
-            for child in win.query_tree().children:
-                found = _search(child)
-                if found:
-                    return found
-        except Exception:
-            pass
-        return None
-    return _search(dpy.screen().root)
-
+_WINDOW_WAIT = 15.0  # max seconds to wait for TORCS window (Time for touching things before the first strokes of episode 1 starts.)
 
 def navigate_torcs_menu(first_run=True):
     """
@@ -115,7 +94,6 @@ def navigate_torcs_menu(first_run=True):
 
     print('[run] Menu navigation complete (wmctrl+xte).')
 
-
 # ---------------------------------------------------------------------------
 # TORCS launch
 # ---------------------------------------------------------------------------
@@ -149,7 +127,6 @@ def launch_torcs(vision=False, new_window=True):
     time.sleep(2.0)
     print('[run] TORCS should now be at the blue waiting screen.')
 
-
 # ---------------------------------------------------------------------------
 # Connect to TORCS via snakeoil UDP
 # ---------------------------------------------------------------------------
@@ -173,7 +150,6 @@ def connect_to_torcs(port=3001, vision=False, max_wait=90):
             )
         print(f'[run] Not connected yet (attempt {attempt}), retrying in 2s...')
         time.sleep(2.0)
-
 
 # ---------------------------------------------------------------------------
 # Episode loop
@@ -278,7 +254,6 @@ def run_episode(client, driver, processor, logger, max_steps, ep_num):
 
     return total_reward, lap_completed, lap_time, obs.dist_raced
 
-
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -339,7 +314,6 @@ def main():
     print(f'{"="*55}')
     print('[run] Shutting down TORCS.')
     os.system('pkill -9 torcs 2>/dev/null')
-
 
 if __name__ == '__main__':
     main()
