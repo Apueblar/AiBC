@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AiBC — TORCS autonomous driver (status)</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --card: #161b22;
+      --border: #30363d;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: "Segoe UI", system-ui, sans-serif;
+      overflow: hidden;
+    }
+    .deck {
+      height: 100vh;
+      overflow-y: scroll;
+      scroll-snap-type: y mandatory;
+      scroll-behavior: smooth;
+    }
+    section.slide {
+      min-height: 100vh;
+      scroll-snap-align: start;
+      padding: clamp(1.5rem, 4vw, 3rem);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      max-width: 52rem;
+      margin: 0 auto;
+    }
+    h1 { font-size: clamp(1.75rem, 4vw, 2.5rem); font-weight: 600; margin: 0 0 0.5rem; }
+    h2 { font-size: clamp(1.25rem, 2.5vw, 1.65rem); font-weight: 600; color: var(--accent); margin: 0 0 1rem; }
+    p, li { font-size: clamp(1rem, 2vw, 1.125rem); line-height: 1.55; color: var(--fg); }
+    .muted { color: var(--muted); font-size: 0.95rem; margin-top: 0.75rem; }
+    ul { padding-left: 1.25rem; }
+    li { margin: 0.4rem 0; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem 1.5rem;
+      margin-top: 1rem;
+    }
+    .metrics { display: grid; gap: 0.75rem; }
+    .metric { display: flex; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+    .metric:last-child { border-bottom: 0; }
+    .metric span:first-child { color: var(--muted); }
+    video {
+      width: 100%;
+      max-height: 55vh;
+      border-radius: 10px;
+      background: #000;
+      border: 1px solid var(--border);
+    }
+    .hint {
+      position: fixed;
+      bottom: 1rem;
+      right: 1rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+      opacity: 0.85;
+      pointer-events: none;
+    }
+    .tagline { color: var(--muted); font-size: 1rem; margin-bottom: 1.5rem; }
+  </style>
+</head>
+<body>
+  <div class="deck" id="deck">
+    <section class="slide">
+      <h1>IT Applications in Business and Commerce — AiBC</h1>
+      <p class="tagline">IBM AI Racing League · Country Challenge 2026 · TORCS autonomous driver (Python)</p>
+      <p>Autonomous racing in <strong>The Open Racing Car Simulator</strong>, aligned with the course project board <em>ITAPP_Tue1115_AiBC</em>: research, implementation, measurable laps, and continuous integration.</p>
+    </section>
+
+    <section class="slide">
+      <h2>Objective</h2>
+      <p>Program an AI driver for TORCS; qualification focuses on lap performance on the Corkscrew track. The competition framing matches real delivery practice: <strong>build → test → explain → defend</strong> the strategy.</p>
+      <p class="muted">Stack referenced in-repo: Python client over the SCR/snakeoil interface, with optional path toward IBM Granite for later stages.</p>
+    </section>
+
+    <section class="slide">
+      <h2>Delivered so far</h2>
+      <ul>
+        <li><strong>Team &amp; research:</strong> TORCS SCR client workflow and how to race via the simulator.</li>
+        <li><strong>Sensor layer:</strong> parsing and normalization of TORCS sensors, derived features, CSV logging for analysis (<code>sensor_processor.py</code>, <code>results/sensors/</code>).</li>
+        <li><strong>Driver:</strong> rule-based Alpha driver (v0.2) — adaptive speed from rangefinders, steer smoothing and corner mode, automatic gearing, traction-aware throttle/brake (<code>car_agent.py</code>).</li>
+        <li><strong>Runner:</strong> automated TORCS menu navigation and UDP session loop (<code>run.py</code>).</li>
+        <li><strong>DevOps:</strong> GitHub Actions workflow running the stack in Docker, capturing lap time, distance, reward; appending runs to <code>results/history.csv</code>.</li>
+      </ul>
+    </section>
+
+    <section class="slide">
+      <h2>Measured performance</h2>
+      <div class="card metrics">
+        <div class="metric"><span>Best lap time logged in CI history (repo)</span><span>141.09 s</span></div>
+        <div class="metric"><span>Recorded demo file</span><span>160.82 s (see video)</span></div>
+      </div>
+      <p class="muted">Values come from automated race logs; filenames may not match every CSV row after tuning iterations.</p>
+    </section>
+
+    <section class="slide">
+      <h2>Demo lap (video)</h2>
+      <p>Screen capture of the TORCS run corresponding to <code>results/160.82secs.mp4</code>.</p>
+      <video src="../results/160.82secs.mp4" controls playsinline preload="metadata"></video>
+      <p class="muted">If the video does not load, open this HTML file via a local server or place the mp4 next to this file and refresh.</p>
+    </section>
+
+    <section class="slide">
+      <h2>Current focus &amp; next steps</h2>
+      <ul>
+        <li><strong>In progress:</strong> lap-time optimization, reducing zig-zag, exploratory integration ideas (e.g. Ollama / LLM connectivity) as on the team board.</li>
+        <li><strong>Next:</strong> formal validation of driver performance.</li>
+        <li><strong>Course milestone:</strong> IBM GMforSD submission (board date: 1 June).</li>
+      </ul>
+    </section>
+  </div>
+  <div class="hint">Scroll or use ↑ ↓ PageUp PageDown</div>
+  <script>
+    (function () {
+      const deck = document.getElementById("deck");
+      const step = () => Math.max(window.innerHeight * 0.92, 200);
+      window.addEventListener("keydown", function (e) {
+        if (e.key === "ArrowDown" || e.key === "PageDown") {
+          e.preventDefault();
+          deck.scrollBy({ top: step(), behavior: "smooth" });
+        } else if (e.key === "ArrowUp" || e.key === "PageUp") {
+          e.preventDefault();
+          deck.scrollBy({ top: -step(), behavior: "smooth" });
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
