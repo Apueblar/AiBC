@@ -16,6 +16,7 @@ ip addr show
 http://192.168.70.204:6080/vnc.html
 
 For each start of the container:
+Option A:
 	torcs &
 
 	1.  In the TORCS main menu, click Race.
@@ -27,4 +28,8 @@ For each start of the container:
 	7.  Click New Race. TORCS will switch to a blue waiting screen with some text. This means it is waiting for your AI agent to connect.
 
 Each run:
+	python3 run.py
+	
+Option B: (Better / Faster)
+	cd workspace/gym_torcs/
 	python3 run.py
