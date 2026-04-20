@@ -34,6 +34,7 @@ except ImportError:
 
 import snakeoil3_gym as snakeoil3
 from car_agent import AlphaDriver
+from sensor_processor import SensorProcessor, SensorLogger
 
 
 # ---------------------------------------------------------------------------
@@ -227,15 +228,27 @@ def connect_to_torcs(port=3001, vision=False, max_wait=90):
 # ---------------------------------------------------------------------------
 # Episode loop
 # ---------------------------------------------------------------------------
-def run_episode(client, driver, max_steps, ep_num):
+def run_episode(client, driver, processor, logger, max_steps, ep_num):
     """
-    Drive until lap complete / (off-track - removed) / backwards / stuck / max_steps.
+    Drive until lap complete / backwards / stuck / max_steps.
     Returns (total_reward, lap_completed, lap_time, distance_raced).
+
+    Parameters
+    ----------
+    processor : SensorProcessor
+        Resets at episode start; processes client.S.d each step.
+    logger : SensorLogger
+        Opens a new CSV for this episode; writes one row per step;
+        closes the file when the episode ends.
     """
     client.MAX_STEPS = np.inf
+    processor.reset()           # clear any state from the previous episode
+    logger.open(episode=ep_num) # AiBC/results/sensors/ep<N>_<timestamp>.csv
     client.get_servers_input()
 
     s = client.S.d
+    obs = processor.process(s)  # first observation of the episode
+
     lap_time_at_start = s.get('lastLapTime', 0.0)
     prev_damage       = s.get('damage', 0.0)
     total_reward      = 0.0
@@ -248,17 +261,28 @@ def run_episode(client, driver, max_steps, ep_num):
         S, R = client.S, client.R
         s    = S.d
 
+        # --- Sensor processing -----------------------------------------
+        # obs contains normalised sensors + derived features every step.
+        # Pass obs to your ML model here instead of (or alongside) act_raw.
+        obs = processor.process(s)
+
+        # --- Driver decision -------------------------------------------
         driver.act_raw(S, R)
 
+        # --- Send / receive --------------------------------------------
         client.respond_to_server()
         client.get_servers_input()
-        s = client.S.d
+        s   = client.S.d
+        obs = processor.process(s)   # post-step observation
 
-        speed    = s['speedX']
-        angle    = s['angle']
-        progress = speed * np.cos(angle)
+        # --- Log to CSV ------------------------------------------------
+        logger.write(obs, episode=ep_num, step=step)
 
-        cur_damage  = s.get('damage', 0.0)
+        speed    = obs.speed_x
+        angle    = obs.angle_rad
+        progress = obs.effective_speed   # already = speed_x * cos(angle)
+
+        cur_damage  = obs.damage
         collision   = (cur_damage - prev_damage) > 0
         prev_damage = cur_damage
 
@@ -266,49 +290,43 @@ def run_episode(client, driver, max_steps, ep_num):
         total_reward += reward
 
         if step % 500 == 0 and step > 0:
-            dist = s.get('distRaced', 0.0)
-            print(f'  [ep {ep_num} | step {step:>6}]  '
-                  f'speed={speed:5.1f} km/h  dist={dist:7.1f} m  '
-                  f'reward={total_reward:8.1f}')
+            dist = obs.dist_raced
+            print(f'  [ep {ep_num} | step {step:>6}]  {obs.summary()}  '
+                  f'dist={dist:7.1f}m  reward={total_reward:8.1f}')
 
-        current_lap_time = s.get('lastLapTime', 0.0)
+        current_lap_time = obs.last_lap_time
         if current_lap_time != lap_time_at_start and current_lap_time > 0.0:
             lap_time      = current_lap_time
             lap_completed = True
-            dist          = s.get('distRaced', 0.0)
             print(f'\n  *** LAP COMPLETE at step {step} ***')
             print(f'  Lap time : {lap_time:.2f} s')
-            print(f'  Distance : {dist:.1f} m')
+            print(f'  Distance : {obs.dist_raced:.1f} m')
             print(f'  Reward   : {total_reward:.2f}\n')
             client.R.d['meta'] = 1
             client.respond_to_server()
+            logger.close()
             break
 
-        track = np.array(s['track'])
-
-        # if track.min() < 0:
-        #     print(f'  [ep {ep_num} | step {step}] Off track – ending episode.')
-        #     client.R.d['meta'] = 1
-        #     client.respond_to_server()
-        #     break
-
-        if np.cos(angle) < 0:
-            print(f'  [ep {ep_num} | step {step}] Driving backwards – ending episode.')
+        # Termination checks using obs flags (cleaner than raw dict access)
+        if not obs.is_going_forward:
+            print(f'  [ep {ep_num} | step {step}] Driving backwards - ending episode.')
             client.R.d['meta'] = 1
             client.respond_to_server()
+            logger.close()
             break
 
         if step > 500 and progress < 1.0:
-            print(f'  [ep {ep_num} | step {step}] Stuck (progress={progress:.2f}) – ending episode.')
+            print(f'  [ep {ep_num} | step {step}] Stuck (progress={progress:.2f}) - ending episode.')
             client.R.d['meta'] = 1
             client.respond_to_server()
+            logger.close()
             break
 
     else:
         print(f'  [ep {ep_num}] Reached max steps ({max_steps}) without completing a lap.')
+        logger.close()
 
-    dist = s.get('distRaced', 0.0)
-    return total_reward, lap_completed, lap_time, dist
+    return total_reward, lap_completed, lap_time, obs.dist_raced
 
 
 # ---------------------------------------------------------------------------
@@ -321,9 +339,13 @@ def main():
               'wmctrl+xte as fallback (may be less reliable).')
         print('[run]   To install: pip3 install python3-xlib')
 
-    args   = parse_args()
-    driver = AlphaDriver()
+    args      = parse_args()
+    driver    = AlphaDriver()
+    processor = SensorProcessor()   # shared across episodes; reset() each episode
+    logger    = SensorLogger()      # writes AiBC/results/sensors/ep<N>_<timestamp>.csv
     print('[run] AlphaDriver initialised.')
+    print('[run] SensorProcessor initialised.')
+    print(f'[run] SensorLogger output dir: {logger._output_dir}')
 
     if not args.no_launch:
         launch_torcs(vision=args.vision)
@@ -349,7 +371,7 @@ def main():
             client = connect_to_torcs(port=args.port, vision=args.vision)
 
         total_reward, lap_done, lap_time, distance = run_episode(
-            client, driver, max_steps=args.steps, ep_num=ep + 1
+            client, driver, processor, logger, max_steps=args.steps, ep_num=ep + 1
         )
 
         if lap_done:
