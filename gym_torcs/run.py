@@ -283,12 +283,6 @@ def run_episode(client, driver, processor, logger, max_steps, ep_num):
 # Main
 # ---------------------------------------------------------------------------
 def main():
-    # Warn early if python3-xlib is missing so the user can fix it once
-    if not _XLIB_OK:
-        print('[run] WARNING: python3-xlib not found. GUI navigation will use '
-              'wmctrl+xte as fallback (may be less reliable).')
-        print('[run]   To install: pip3 install python3-xlib')
-
     args      = parse_args()
     driver    = AlphaDriver()
     processor = SensorProcessor()   # shared across episodes; reset() each episode
