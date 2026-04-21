@@ -47,7 +47,7 @@ _MENU_KEYS_START = ['Return', 'Up', 'Up', 'Return', 'Down', 'Return', 'Left', 'L
 _MENU_KEYS_CONTINUE = ['Return', 'Up', 'Up', 'Return', 'Return']
 _KEY_DELAY  = 0.25   # seconds between keystrokes - 0.25
 _WINDOW_POLL = 0.4   # seconds between window-search retries
-_WINDOW_WAIT = 15.0  # max seconds to wait for TORCS window (Time for touching things before the first strokes of episode 1 starts.)
+_WINDOW_WAIT = 7.0  # max seconds to wait for TORCS window (Time for touching things before the first strokes of episode 1 starts.)
 
 def navigate_torcs_menu(first_run=True):
     """

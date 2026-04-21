@@ -1,0 +1,82 @@
+{
+  "TARGET_SPEED": 360.0,
+  "MAX_ACCEL": 1.0,
+  "PTP_DIST_THRESHOLD": 60.0,
+  "TC_THRESHOLD": 50.0,
+  "TC_REDUCTION": 0.2,
+  "WALL_DANGER_DIST": 4.0,
+  "WALL_WARN_DIST": 10.0,
+  "WALL_DANGER_GAIN": 0.65,
+  "WALL_WARN_GAIN": 0.2,
+  "LOOKAHEAD_DISTS": [
+    10,
+    22,
+    40,
+    65,
+    100,
+    150,
+    200
+  ],
+  "CORNER_ASYMS": [
+    0,
+    8,
+    20,
+    35,
+    52,
+    70
+  ],
+  "GEAR_UP": [
+    0,
+    55,
+    100,
+    145,
+    190,
+    240
+  ],
+  "GEAR_DOWN": [
+    0,
+    0,
+    40,
+    80,
+    120,
+    165
+  ],
+  "STEER_ANGLE_GAIN": 0.7550835463518881,
+  "STEER_CENTER_GAIN": 0.4290375950399672,
+  "STEER_LOOKAHEAD": 0.43067926252118754,
+  "STEER_SPEED_DENOM": 394.16004308966416,
+  "MIN_STEER_SCALE": 0.23144121176693588,
+  "STEER_SMOOTH": 0.24406519643469934,
+  "APEX_OFFSET": 0.6893862156970741,
+  "APEX_ASYM_THRESH": 7.403266296781886,
+  "TARGET_POS_SLEW": 0.1952681446767714,
+  "TARGET_SLEW_DOWN": 2.436622583208843,
+  "TARGET_SLEW_UP": 11.669662173570957,
+  "BRAKE_GAIN": 0.057149081729508465,
+  "MAX_BRAKE": 0.9145522835420589,
+  "BRAKE_TRIGGER": 3.4080169753294345,
+  "LOOKAHEAD_SPEEDS": [
+    70,
+    92,
+    115,
+    155,
+    200,
+    270,
+    360
+  ],
+  "CORNER_SPEEDS": [
+    360,
+    205,
+    197,
+    113,
+    68,
+    54
+  ],
+  "best_lap_time": 130.462,
+  "laps_in_trial": 3,
+  "trial_lap_times": [
+    130.462,
+    139.342,
+    130.462
+  ]
+}
