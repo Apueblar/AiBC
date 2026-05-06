@@ -1,7 +1,7 @@
 """
 improver.py — Optuna optimizer for AlphaDriver
 ===============================================
-Score = MEDIAN lap time over N laps per trial (default 3).
+Score = MEAN lap time over N laps per trial (default 3).
 Between laps the car is reset to start via TORCS menu navigation —
 TORCS is never relaunched mid-trial.
 
@@ -9,14 +9,10 @@ Install:
     pip install optuna
 
 Usage:
-    python improver.py                     # 1000 trials, 3 laps each
-    python improver.py --trials 200        # fewer trials
-    python improver.py --laps 5            # more laps per trial (slower, stabler)
-    python improver.py --port 3002
+    python improver.py                     # 300 trials, 3 laps each
 """
 
 import os
-import sys
 import time
 import json
 import argparse
@@ -51,8 +47,6 @@ _MENU_KEYS_START = [
     'Left', 'Left', 'Left', 'Left', 'Left', 'Left', 'Left', 'Left',
     'Return', 'Return', 'Return', 'Up', 'Return',
 ]
-# After meta=1: race-end screen → back to blue "waiting" screen
-_MENU_KEYS_CONTINUE = ['Return', 'Up', 'Up', 'Return', 'Return']
 
 # ---------------------------------------------------------------------------
 # Episode settings
@@ -64,31 +58,10 @@ DNF_PENALTY  = 9_999.0  # lap-time value assigned to a DNF
 # TORCS helpers
 # ---------------------------------------------------------------------------
 
-def _find_torcs_window(timeout: float = _WINDOW_WAIT) -> str | None:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            out = subprocess.check_output(
-                ['wmctrl', '-l'], stderr=subprocess.DEVNULL, env=os.environ
-            ).decode()
-            for line in out.splitlines():
-                if 'torcs' in line.lower():
-                    return line.split()[0]
-        except Exception:
-            pass
-        time.sleep(_WINDOW_POLL)
-    return None
-
-
 def _navigate_menu(first_run: bool = True):
-    """Focus the TORCS window (if found) and send the appropriate key sequence."""
-    wid = _find_torcs_window()
-    if wid:
-        os.system(f'wmctrl -ia {wid}')
-        time.sleep(0.5)
-    else:
-        print('[improver] WARNING: TORCS window not found — sending keys to focused window.')
-    keys = _MENU_KEYS_START if first_run else _MENU_KEYS_CONTINUE
+    """Send the appropriate key sequence."""
+    time.sleep(0.5)
+    keys = _MENU_KEYS_START if first_run else []
     for key in keys:
         os.system(f"xte 'key {key}'")
         time.sleep(_KEY_DELAY)
@@ -159,7 +132,7 @@ def run_lap(client, driver: AlphaDriver) -> tuple[float, float]:
 
     s           = client.S.d
     lap_base    = float(s.get('lastLapTime', 0.0))
-    prev_damage = float(s.get('damage', 0.0))
+    prev_speed  = 0.0
 
     for step in range(MAX_STEPS):
         driver.act_raw(client.S, client.R)
@@ -173,26 +146,37 @@ def run_lap(client, driver: AlphaDriver) -> tuple[float, float]:
         cur_damage = float(s.get('damage',      0.0))
         lap_now    = float(s.get('lastLapTime', 0.0))
 
-        # ── Lap complete ──────────────────────────────────────────────────
+        # -- Lap complete --------------------------------------------------
         if lap_now != lap_base and lap_now > 0.0:
             _end_episode(client)
             return lap_now, dist
 
-        # ── Going backwards ───────────────────────────────────────────────
+        # -- Going backwards -----------------------------------------------
         if step > 100 and speed * np.cos(angle) < -1.0:
             _end_episode(client)
             return 0.0, dist
 
-        # ── Stuck ─────────────────────────────────────────────────────────
+        # -- Stuck ---------------------------------------------------------
         if step > 500 and speed * np.cos(angle) < 1.0:
             _end_episode(client)
             return 0.0, dist
 
-        # ── Heavy collision ───────────────────────────────────────────────
-        if cur_damage - prev_damage > 500:
+        # -- Off-track / wall hit detection (no-damage mode) ---------------
+        track_pos = float(s.get('trackPos', 0.0))
+
+        # 1. Car is outside the track boundaries (trackPos < -1 or > 1)
+        if abs(track_pos) > 1.05:
+            print(f'  [t] Off-track (trackPos={track_pos:.2f}). DNF.')
             _end_episode(client)
             return 0.0, dist
-        prev_damage = cur_damage
+
+        # 2. Sudden speed crash: was going fast, now nearly stopped
+        if step > 50 and prev_speed > 60 and speed < 5.0:
+            print(f'  [t] Speed crash (was {prev_speed:.0f} → now {speed:.0f} km/h). DNF.')
+            _end_episode(client)
+            return 0.0, dist
+
+        prev_speed = speed
 
     _end_episode(client)
     return 0.0, float(s.get('distRaced', 0.0))   # timeout = DNF
@@ -202,62 +186,73 @@ def run_lap(client, driver: AlphaDriver) -> tuple[float, float]:
 # Optuna search space
 # ---------------------------------------------------------------------------
 
+_prev_params: dict = {}
+
+def _local_float(trial, name, min_abs, max_abs, variance=0.20):
+    """Suggest a float within ±20% of the previous best, bounded by absolute limits."""
+    center = _prev_params.get(name)
+    if center is not None:
+        span = max(0.05, abs(center) * variance)
+        low = center - span
+        high = center + span
+        # Expand absolute bounds if previous center forces it
+        min_abs = min(min_abs, low)
+        max_abs = max(max_abs, high)
+        return trial.suggest_float(name, max(min_abs, low), min(max_abs, high))
+    return trial.suggest_float(name, min_abs, max_abs)
+
+def _local_int(trial, name, min_abs, max_abs, center=None, variance=0.20):
+    """Suggest an int within ±20% of the previous best, bounded by absolute limits."""
+    if center is not None:
+        span = max(5, int(center * variance))
+        low = int(center - span)
+        high = int(center + span)
+        # Expand absolute bounds if previous center forces it
+        min_abs = min(min_abs, low)
+        max_abs = max(max_abs, high)
+        return trial.suggest_int(name, max(min_abs, low), min(max_abs, high))
+    return trial.suggest_int(name, min_abs, max_abs)
+
 def _make_params(trial) -> dict:
     """Build a full params dict for one Optuna trial."""
+    prev_cs = _prev_params.get('CORNER_SPEEDS', [40, 55, 80, 110, 150, 200, 280])
+    prev_as = _prev_params.get('ASYM_SPEEDS',   [280, 220, 160, 110, 70, 50])
+
     return {
-        # ── Fixed safety / physics ────────────────────────────────────────
-        'TARGET_SPEED':       360.0,
-        'MAX_ACCEL':          1.0,
-        'PTP_DIST_THRESHOLD': 60.0,
-        'TC_THRESHOLD':       50.0,
-        'TC_REDUCTION':       0.20,
-        'WALL_DANGER_DIST':   4.0,
-        'WALL_WARN_DIST':     10.0,
-        'WALL_DANGER_GAIN':   0.65,
-        'WALL_WARN_GAIN':     0.20,
-        'LOOKAHEAD_DISTS':    [10, 22, 40, 65, 100, 150, 200],
-        'CORNER_ASYMS':       [ 0,  8, 20, 35,  52,  70],
-        'GEAR_UP':            [0,  55, 100, 145, 190, 240],
-        'GEAR_DOWN':          [0,   0,  40,  80, 120, 165],
+        # -- Steering (core reference formula) ----------------------------
+        'K_ANGLE':            _local_float(trial, 'K_ANGLE',            2.0,  10.0),
+        'K_POS':              _local_float(trial, 'K_POS',              0.03,  0.40),
 
-        # ── Steering ─────────────────────────────────────────────────────
-        'STEER_ANGLE_GAIN':  trial.suggest_float('STEER_ANGLE_GAIN',  0.35, 0.80),
-        'STEER_CENTER_GAIN': trial.suggest_float('STEER_CENTER_GAIN', 0.20, 0.65),
-        'STEER_LOOKAHEAD':   trial.suggest_float('STEER_LOOKAHEAD',   0.08, 0.50),
-        'STEER_SPEED_DENOM': trial.suggest_float('STEER_SPEED_DENOM', 350., 750.),
-        'MIN_STEER_SCALE':   trial.suggest_float('MIN_STEER_SCALE',   0.12, 0.40),
-        'STEER_SMOOTH':      trial.suggest_float('STEER_SMOOTH',      0.00, 0.40),
+        # -- Speed --------------------------------------------------------
+        'TARGET_SPEED':       _local_float(trial, 'TARGET_SPEED',      180.0, 320.0),
+        'STEER_SPEED_FACTOR': _local_float(trial, 'STEER_SPEED_FACTOR', 30.0, 200.0),
 
-        # ── Apex / racing line ───────────────────────────────────────────
-        'APEX_OFFSET':       trial.suggest_float('APEX_OFFSET',      0.30, 0.80),
-        'APEX_ASYM_THRESH':  trial.suggest_float('APEX_ASYM_THRESH', 3.0,  14.0),
-        'TARGET_POS_SLEW':   trial.suggest_float('TARGET_POS_SLEW',  0.04, 0.25),
-
-        # ── Speed slew ───────────────────────────────────────────────────
-        'TARGET_SLEW_DOWN':  trial.suggest_float('TARGET_SLEW_DOWN', 2.0,  9.0),
-        'TARGET_SLEW_UP':    trial.suggest_float('TARGET_SLEW_UP',   3.0, 18.0),
-
-        # ── Braking ──────────────────────────────────────────────────────
-        'BRAKE_GAIN':        trial.suggest_float('BRAKE_GAIN',       0.03, 0.16),
-        'MAX_BRAKE':         trial.suggest_float('MAX_BRAKE',        0.65, 1.00),
-        'BRAKE_TRIGGER':     trial.suggest_float('BRAKE_TRIGGER',    0.5,  5.0),
-
-        # ── Lookahead speed curve (close-range tunable) ──────────────────
-        'LOOKAHEAD_SPEEDS': [
-            trial.suggest_int('lah_10',  25,  70),   # dist=10 m
-            trial.suggest_int('lah_22',  45, 100),   # dist=22 m
-            115, 155, 200, 270, 360,
-        ],
-
-        # ── Corner speed curve ───────────────────────────────────────────
+        # -- Forward clearance speed curve --------------------------------
+        'CORNER_DISTS':  [5, 15, 30, 50, 80, 120, 200],
         'CORNER_SPEEDS': [
-            360,
-            trial.suggest_int('crn_8',   190, 330),  # asym=8
-            trial.suggest_int('crn_20',  100, 200),  # asym=20
-            trial.suggest_int('crn_35',   55, 125),  # asym=35
-            trial.suggest_int('crn_52',   38,  85),  # asym=52
-            trial.suggest_int('crn_70',   30,  62),  # asym=70
+            _local_int(trial, 'cs_5',    25,  65, prev_cs[0]),
+            _local_int(trial, 'cs_15',   35,  85, prev_cs[1]),
+            _local_int(trial, 'cs_30',   50, 120, prev_cs[2]),
+            _local_int(trial, 'cs_50',   70, 160, prev_cs[3]),
+            _local_int(trial, 'cs_80',  100, 220, prev_cs[4]),
+            _local_int(trial, 'cs_120', 140, 270, prev_cs[5]),
+            _local_int(trial, 'cs_200', 200, 320, prev_cs[6]),
         ],
+
+        # -- Asymmetry (corner anticipation) speed curve ------------------
+        'ASYM_BREAKS': [0, 15, 35, 60, 90, 130],
+        'ASYM_SPEEDS': [
+            _local_int(trial, 'as_0',   220, 320, prev_as[0]),  # straight
+            _local_int(trial, 'as_15',  150, 280, prev_as[1]),  # gentle curve
+            _local_int(trial, 'as_35',   90, 200, prev_as[2]),  # medium corner
+            _local_int(trial, 'as_60',   60, 140, prev_as[3]),  # sharp corner
+            _local_int(trial, 'as_90',   40,  90, prev_as[4]),  # hairpin
+            _local_int(trial, 'as_130',  30,  65, prev_as[5]),  # very tight
+        ],
+
+        # -- Gear (fixed) -------------------------------------------------
+        'GEAR_UP':   [0,  50,  80, 110, 140, 170],
+        'GEAR_DOWN': [0,   0,  35,  65,  95, 130],
     }
 
 
@@ -279,7 +274,7 @@ def objective(trial) -> float:
 
     for lap_idx in range(n_laps):
 
-        # ── Connect (TORCS already at waiting screen) ─────────────────────
+        # -- Connect (TORCS already at waiting screen) ---------------------
         try:
             client = connect_torcs(port=port, max_wait=40)
         except RuntimeError:
@@ -291,30 +286,43 @@ def objective(trial) -> float:
                 print(f'  [t{trial.number}|lap{lap_idx+1}] relaunch failed — aborting trial')
                 return float(DNF_PENALTY)
 
-        # ── Run the lap ───────────────────────────────────────────────────
+        # -- Run the lap ---------------------------------------------------
         lap_t, dist = run_lap(client, driver)
 
         if lap_t > 0:
             lap_times.append(lap_t)
             status = f'lap={lap_t:.2f}s'
+            
+            # Abort if lap is completely uncompetitive (40% slower than best)
+            if _best_score != float('inf') and lap_t > _best_score * 1.40:
+                print(f'  [t{trial.number}] Lap too slow ({lap_t:.2f}s > {_best_score * 1.40:.2f}s). Aborting remaining laps.')
+                while len(lap_times) < n_laps:
+                    lap_times.append(DNF_PENALTY)
+                break
         else:
             lap_times.append(DNF_PENALTY)
             status = f'DNF'
+            print(f'  trial {trial.number:>4} | lap {lap_idx+1}/{n_laps} | {status} | dist={dist:.0f}m')
+            print(f'  [t{trial.number}] Car crashed/DNF. Aborting remaining laps.')
+            # Fill the remaining laps with DNF_PENALTY so the mean reflects the failure
+            while len(lap_times) < n_laps:
+                lap_times.append(DNF_PENALTY)
+            break
 
         print(f'  trial {trial.number:>4} | lap {lap_idx+1}/{n_laps} | '
               f'{status} | dist={dist:.0f}m')
 
-        # ── Navigate back to waiting screen for the next lap ─────────────
+        # -- Navigate back to waiting screen for the next lap -------------
         # (No TORCS relaunch — car resets to start via menu navigation)
         _navigate_menu(first_run=False)
 
-    # ── Score = median lap time (DNFs count as DNF_PENALTY) ──────────────
-    score = float(np.median(lap_times))
+    # ── Score = mean lap time (DNFs count as DNF_PENALTY) ──────────────
+    score = float(np.mean(lap_times))
     completed = sum(1 for t in lap_times if t < DNF_PENALTY)
-    print(f'  trial {trial.number:>4} | median={score:.2f}s | '
+    print(f'  trial {trial.number:>4} | mean={score:.2f}s | '
           f'completed={completed}/{n_laps}')
 
-    # ── Save immediately on new best (all laps must complete) ─────────────
+    # -- Save immediately on new best (all laps must complete) -------------
     if score < _best_score and completed == n_laps:
         _best_score = score
         out = dict(params)
@@ -323,7 +331,7 @@ def objective(trial) -> float:
         out['trial_lap_times'] = lap_times
         with open(_PARAMS_FILE, 'w') as f:
             json.dump(out, f, indent=2)
-        print(f'\n  ★ NEW BEST  median={score:.2f}s  →  {_PARAMS_FILE}\n')
+        print(f'\n  ★ NEW BEST  mean={score:.2f}s  →  {_PARAMS_FILE}\n')
 
     return score
 
@@ -334,7 +342,7 @@ def objective(trial) -> float:
 
 def parse_args():
     p = argparse.ArgumentParser(description='AlphaDriver Optuna optimizer')
-    p.add_argument('--trials', type=int, default=1000, help='Number of Optuna trials')
+    p.add_argument('--trials', type=int, default=300, help='Number of Optuna trials')
     p.add_argument('--laps',   type=int, default=3,
                    help='Laps per trial for median scoring (default: 3)')
     p.add_argument('--port',   type=int, default=3001,  help='TORCS UDP port')
@@ -342,15 +350,15 @@ def parse_args():
 
 
 def main():
-    global _cfg, _best_score
+    global _cfg, _best_score, _prev_params
 
     args  = parse_args()
     _cfg  = {'trials': args.trials, 'laps': args.laps, 'port': args.port}
 
     print('=' * 58)
     print('  AlphaDriver Optimizer')
-    print(f'  Trials              : {args.trials}')
-    print(f'  Laps / trial        : {args.laps}  (scored by median)')
+    print(f'  Trials              : {args.trials} (Local Search)')
+    print(f'  Laps / trial        : {args.laps}  (scored by mean)')
     print(f'  Port                : {args.port}')
     print(f'  Best params file    : {_PARAMS_FILE}')
     print('=' * 58)
@@ -358,8 +366,8 @@ def main():
     # Load current best so we never overwrite a better result
     if os.path.exists(_PARAMS_FILE):
         with open(_PARAMS_FILE) as f:
-            prev = json.load(f)
-        prev_lap = prev.get('best_lap_time', float('inf'))
+            _prev_params = json.load(f)
+        prev_lap = _prev_params.get('best_lap_time', float('inf'))
         try:
             _best_score = float(prev_lap)
             print(f'  Current best lap    : {_best_score:.2f}s')
@@ -388,7 +396,7 @@ def main():
     try:
         best = study.best_trial
         print(f'\n[improver] Optimization complete.')
-        print(f'[improver] Best median lap : {best.value:.2f}s')
+        print(f'[improver] Best mean lap   : {best.value:.2f}s')
         print(f'[improver] Params saved to : {_PARAMS_FILE}')
     except Exception:
         print('[improver] No successful trial recorded.')
