@@ -233,7 +233,7 @@ class SensorObservation:
         if not self.is_car_aligned: flags += 'MISALIGNED '
         return (
             f"spd={self.speed_x:5.1f}km/h  "
-            f"angle={np.degrees(self.angle_rad):+6.1f}°  "
+            f"angle={np.degrees(self.angle_rad):+6.1f}deg  "
             f"pos={self.track_pos:+.3f}  "
             f"ahead={self.track_ahead:6.1f}m  "
             f"L={self.track_left_clearance:5.1f}m  "

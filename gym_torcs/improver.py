@@ -25,7 +25,7 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 os.environ['DISPLAY'] = ':1'
 
 import snakeoil3_gym as snakeoil3
-from car_agent import AlphaDriver, DEFAULT_PARAMS   # no duplicate driver code
+from car_agent import AlphaDriver
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -43,9 +43,7 @@ _POST_NAV_WAIT = 2.0    # s — settle time after menu navigation
 
 # Full menu sequence from the TORCS start screen  → blue "waiting" screen
 _MENU_KEYS_START = [
-    'Return', 'Up', 'Up', 'Return', 'Down', 'Return',
-    'Left', 'Left', 'Left', 'Left', 'Left', 'Left', 'Left', 'Left',
-    'Return', 'Return', 'Return', 'Up', 'Return',
+    'Return', 'Return', 'Up', 'Up', 'Return', 'Return'
 ]
 
 # ---------------------------------------------------------------------------

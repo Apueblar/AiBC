@@ -74,6 +74,12 @@ DEFAULT_PARAMS: dict = {
     'STEER_SPEED_FACTOR': STEER_SPEED_FACTOR,
     'GEAR_UP':            list(GEAR_UP),
     'GEAR_DOWN':          list(GEAR_DOWN),
+
+    # Load these directly from _SAVED if present, otherwise use reference defaults
+    'CORNER_DISTS':  _s('CORNER_DISTS',  [5, 15, 30, 50, 80, 120, 200]),
+    'CORNER_SPEEDS': _s('CORNER_SPEEDS', [40, 55, 80, 110, 150, 200, 280]),
+    'ASYM_BREAKS':   _s('ASYM_BREAKS',   [0, 15, 35, 60, 90, 130]),
+    'ASYM_SPEEDS':   _s('ASYM_SPEEDS',   [280, 220, 160, 110, 70, 50]),
 }
 
 
