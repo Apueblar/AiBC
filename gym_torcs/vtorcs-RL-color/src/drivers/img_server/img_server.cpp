@@ -113,33 +113,39 @@ newrace(int index, tCarElt* car, tSituation *s)
 
 //    __SENSORS_RANGE__ = 200;
 
-    listenSocket[index] = socket(AF_INET, SOCK_DGRAM, 0);
-    if (listenSocket[index] < 0)
-    {
-        std::cerr << "Error: cannot create listenSocket!";
-        exit(1);
-    }
+    int current_port = getUDPListenPort() + index;
+    bool bound = false;
 
-    // GIUSE: WTH is that for???
-    srand(time(NULL));
+    while (!bound && current_port < 3100) {
+        listenSocket[index] = socket(AF_INET, SOCK_DGRAM, 0);
+        if (listenSocket[index] < 0)
+        {
+            std::cerr << "Error: cannot create listenSocket!\n";
+            exit(1);
+        }
 
-    // Bind listen socket to listen port.
-    serverAddress[index].sin_family = AF_INET;
-    serverAddress[index].sin_addr.s_addr = htonl(INADDR_ANY);
-    serverAddress[index].sin_port = htons(getUDPListenPort()+index);
+        serverAddress[index].sin_family = AF_INET;
+        serverAddress[index].sin_addr.s_addr = htonl(INADDR_ANY);
+        serverAddress[index].sin_port = htons(current_port);
 
-    if (bind(listenSocket[index],
-             (struct sockaddr *) &serverAddress[index],
-             sizeof(serverAddress[index])) < 0)
-    {
-        std::cerr << "cannot bind socket";
-        exit(1);
+        if (bind(listenSocket[index],
+                 (struct sockaddr *) &serverAddress[index],
+                 sizeof(serverAddress[index])) < 0)
+        {
+            std::cerr << "cannot bind socket on port " << current_port << ", trying next...\n";
+            CLOSE(listenSocket[index]);
+            current_port++;
+        }
+        else
+        {
+            bound = true;
+        }
     }
 
     // Wait for connections from clients.
     listen(listenSocket[index], 5);
 
-    std::cout << "Waiting for request on port " << getUDPListenPort()+index << "\n";
+    std::cout << "Waiting for request on port " << current_port << "\n";
 
     clientAddressLength[index] = sizeof(clientAddress[index]);
 //    char line[UDP_MSGLEN];
