@@ -1,15 +1,15 @@
 """
-improver.py — Optuna optimizer for AlphaDriver
+improver.py - Optuna optimizer for AlphaDriver
 ===============================================
 Score = MEAN lap time over N laps per trial (default 3).
-Between laps the car is reset to start via TORCS menu navigation —
+Between laps the car is reset to start via TORCS menu navigation -
 TORCS is never relaunched mid-trial.
 
 Install:
     pip install optuna
 
 Usage:
-    python improver.py                     # 300 trials, 3 laps each
+    python improver.py                     # 5000 trials, 4 laps each
 """
 
 import os
@@ -35,11 +35,11 @@ _PARAMS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'best_pa
 # ---------------------------------------------------------------------------
 # TORCS GUI / process constants
 # ---------------------------------------------------------------------------
-_TORCS_SETTLE  = 5.0    # s — wait for TORCS window after Popen
-_KEY_DELAY     = 0.25   # s — between keystrokes
-_WINDOW_WAIT   = 7.0    # s — max wait for wmctrl to find the window
-_WINDOW_POLL   = 0.4    # s — wmctrl poll interval
-_POST_NAV_WAIT = 2.0    # s — settle time after menu navigation
+_TORCS_SETTLE  = 5.0    # s - wait for TORCS window after Popen
+_KEY_DELAY     = 0.25   # s - between keystrokes
+_WINDOW_WAIT   = 7.0    # s - max wait for wmctrl to find the window
+_WINDOW_POLL   = 0.4    # s - wmctrl poll interval
+_POST_NAV_WAIT = 2.0    # s - settle time after menu navigation
 
 # Full menu sequence from the TORCS start screen  → blue "waiting" screen
 _MENU_KEYS_START = [
@@ -113,7 +113,7 @@ def _end_episode(client):
 # Single-lap runner
 # ---------------------------------------------------------------------------
 
-def run_lap(client, driver: AlphaDriver) -> tuple[float, float]:
+def run_lap(client, driver: AlphaDriver, optimal_time: float = float('inf')) -> tuple[float, float]:
     """
     Drive one lap from the start position.
 
@@ -174,6 +174,13 @@ def run_lap(client, driver: AlphaDriver) -> tuple[float, float]:
             _end_episode(client)
             return 0.0, dist
 
+        # -- Early termination for being too slow --------------------------
+        cur_lap_time = float(s.get('curLapTime', 0.0))
+        if optimal_time != float('inf') and cur_lap_time > optimal_time + 3.0:
+            print(f'  [t] Lap too slow ({cur_lap_time:.2f}s > {optimal_time:.2f}s + 3s). DNF.')
+            _end_episode(client)
+            return 0.0, dist
+
         prev_speed = speed
 
     _end_episode(client)
@@ -186,8 +193,8 @@ def run_lap(client, driver: AlphaDriver) -> tuple[float, float]:
 
 _prev_params: dict = {}
 
-def _local_float(trial, name, min_abs, max_abs, variance=0.20):
-    """Suggest a float within ±20% of the previous best, bounded by absolute limits."""
+def _local_float(trial, name, min_abs, max_abs, variance=0.10):
+    """Suggest a float within ±10% of the previous best, bounded by absolute limits."""
     center = _prev_params.get(name)
     if center is not None:
         span = max(0.05, abs(center) * variance)
@@ -199,8 +206,8 @@ def _local_float(trial, name, min_abs, max_abs, variance=0.20):
         return trial.suggest_float(name, max(min_abs, low), min(max_abs, high))
     return trial.suggest_float(name, min_abs, max_abs)
 
-def _local_int(trial, name, min_abs, max_abs, center=None, variance=0.20):
-    """Suggest an int within ±20% of the previous best, bounded by absolute limits."""
+def _local_int(trial, name, min_abs, max_abs, center=None, variance=0.10):
+    """Suggest an int within ±10% of the previous best, bounded by absolute limits."""
     if center is not None:
         span = max(5, int(center * variance))
         low = int(center - span)
@@ -222,30 +229,30 @@ def _make_params(trial) -> dict:
         'K_POS':              _local_float(trial, 'K_POS',              0.03,  0.40),
 
         # -- Speed --------------------------------------------------------
-        'TARGET_SPEED':       _local_float(trial, 'TARGET_SPEED',      180.0, 320.0),
+        'TARGET_SPEED':       _local_float(trial, 'TARGET_SPEED',      180.0, 375.0),
         'STEER_SPEED_FACTOR': _local_float(trial, 'STEER_SPEED_FACTOR', 30.0, 200.0),
 
         # -- Forward clearance speed curve --------------------------------
         'CORNER_DISTS':  [5, 15, 30, 50, 80, 120, 200],
         'CORNER_SPEEDS': [
             _local_int(trial, 'cs_5',    25,  65, prev_cs[0]),
-            _local_int(trial, 'cs_15',   35,  85, prev_cs[1]),
-            _local_int(trial, 'cs_30',   50, 120, prev_cs[2]),
-            _local_int(trial, 'cs_50',   70, 160, prev_cs[3]),
-            _local_int(trial, 'cs_80',  100, 220, prev_cs[4]),
+            _local_int(trial, 'cs_15',   50, 100, prev_cs[1]),
+            _local_int(trial, 'cs_30',   75, 125, prev_cs[2]),
+            _local_int(trial, 'cs_50',   90, 160, prev_cs[3]),
+            _local_int(trial, 'cs_80',  110, 220, prev_cs[4]),
             _local_int(trial, 'cs_120', 140, 270, prev_cs[5]),
-            _local_int(trial, 'cs_200', 200, 320, prev_cs[6]),
+            _local_int(trial, 'cs_200', 225, 375, prev_cs[6]),
         ],
 
         # -- Asymmetry (corner anticipation) speed curve ------------------
         'ASYM_BREAKS': [0, 15, 35, 60, 90, 130],
         'ASYM_SPEEDS': [
-            _local_int(trial, 'as_0',   220, 320, prev_as[0]),  # straight
+            _local_int(trial, 'as_0',   220, 375, prev_as[0]),  # straight
             _local_int(trial, 'as_15',  150, 280, prev_as[1]),  # gentle curve
             _local_int(trial, 'as_35',   90, 200, prev_as[2]),  # medium corner
-            _local_int(trial, 'as_60',   60, 140, prev_as[3]),  # sharp corner
-            _local_int(trial, 'as_90',   40,  90, prev_as[4]),  # hairpin
-            _local_int(trial, 'as_130',  30,  65, prev_as[5]),  # very tight
+            _local_int(trial, 'as_60',   60, 170, prev_as[3]),  # sharp corner
+            _local_int(trial, 'as_90',   40, 110, prev_as[4]),  # hairpin
+            _local_int(trial, 'as_130',  30,  80, prev_as[5]),  # very tight
         ],
 
         # -- Gear (fixed) -------------------------------------------------
@@ -276,16 +283,16 @@ def objective(trial) -> float:
         try:
             client = connect_torcs(port=port, max_wait=40)
         except RuntimeError:
-            print(f'  [t{trial.number}|lap{lap_idx+1}] connect failed — relaunching TORCS')
+            print(f'  [t{trial.number}|lap{lap_idx+1}] connect failed - relaunching TORCS')
             launch_torcs(first_run=False)
             try:
                 client = connect_torcs(port=port, max_wait=50)
             except RuntimeError:
-                print(f'  [t{trial.number}|lap{lap_idx+1}] relaunch failed — aborting trial')
+                print(f'  [t{trial.number}|lap{lap_idx+1}] relaunch failed - aborting trial')
                 return float(DNF_PENALTY)
 
         # -- Run the lap ---------------------------------------------------
-        lap_t, dist = run_lap(client, driver)
+        lap_t, dist = run_lap(client, driver, optimal_time=_best_score)
 
         if lap_t > 0:
             lap_times.append(lap_t)
@@ -311,7 +318,7 @@ def objective(trial) -> float:
               f'{status} | dist={dist:.0f}m')
 
         # -- Navigate back to waiting screen for the next lap -------------
-        # (No TORCS relaunch — car resets to start via menu navigation)
+        # (No TORCS relaunch - car resets to start via menu navigation)
         _navigate_menu(first_run=False)
 
     # ── Score = mean lap time (DNFs count as DNF_PENALTY) ──────────────
@@ -340,9 +347,9 @@ def objective(trial) -> float:
 
 def parse_args():
     p = argparse.ArgumentParser(description='AlphaDriver Optuna optimizer')
-    p.add_argument('--trials', type=int, default=300, help='Number of Optuna trials')
-    p.add_argument('--laps',   type=int, default=3,
-                   help='Laps per trial for median scoring (default: 3)')
+    p.add_argument('--trials', type=int, default=5000, help='Number of Optuna trials')
+    p.add_argument('--laps',   type=int, default=4,
+                   help='Laps per trial for median scoring (default: 4)')
     p.add_argument('--port',   type=int, default=3001,  help='TORCS UDP port')
     return p.parse_args()
 
@@ -372,7 +379,7 @@ def main():
         except (TypeError, ValueError):
             print('  Current best lap    : unknown (will overwrite on first complete run)')
     else:
-        print('  No existing best_params.json — starting fresh.')
+        print('  No existing best_params.json - starting fresh.')
     print()
 
     # Warm-start from the existing best params if available
@@ -389,7 +396,7 @@ def main():
     try:
         study.optimize(objective, n_trials=args.trials, show_progress_bar=False)
     except KeyboardInterrupt:
-        print('\n[improver] Interrupted — saving current best and exiting.')
+        print('\n[improver] Interrupted - saving current best and exiting.')
 
     try:
         best = study.best_trial
