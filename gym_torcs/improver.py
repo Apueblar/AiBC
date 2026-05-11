@@ -9,7 +9,7 @@ Install:
     pip install optuna
 
 Usage:
-    python improver.py                     # 5000 trials, 4 laps each
+    python improver.py                     # 5000 trials, 5 laps each
 """
 
 import os
@@ -348,7 +348,7 @@ def objective(trial) -> float:
 def parse_args():
     p = argparse.ArgumentParser(description='AlphaDriver Optuna optimizer')
     p.add_argument('--trials', type=int, default=5000, help='Number of Optuna trials')
-    p.add_argument('--laps',   type=int, default=4,
+    p.add_argument('--laps',   type=int, default=5,
                    help='Laps per trial for median scoring (default: 4)')
     p.add_argument('--port',   type=int, default=3001,  help='TORCS UDP port')
     return p.parse_args()
